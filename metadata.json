@@ -1,8 +1,9 @@
 {
-  "name": "Copy of Copy of DeFrame AI",
-  "description": "An autonomous AI coding and analysis environment with a retro terminal aesthetic.",
+  "name": "DeFrame V2 - Master Edition",
+  "description": "Autonomous AI Production Environment with Stochastic Modeling and Code Orchestration",
   "requestFramePermissions": [
     "camera",
-    "microphone"
+    "microphone",
+    "display-capture"
   ]
 }

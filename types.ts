@@ -15,6 +15,7 @@ export interface LogEntry {
   details?: string;
   file?: string;
   codeSnippet?: string;
+  metadata?: Record<string, any>; // JSON-style structlog metadata
 }
 
 export interface ChatMessage {
@@ -26,30 +27,35 @@ export interface ChatMessage {
 export enum AppState {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
-  CODING = 'CODING',
-  DEBUGGING = 'DEBUGGING',
-  REFINING = 'REFINING',
+  ORCHESTRATING = 'ORCHESTRATING',
   SIMULATING = 'SIMULATING',
   AUTOMATING = 'AUTOMATING',
-  REPORTING = 'REPORTING'
+  REPAIRING = 'REPAIRING'
+}
+
+export interface SimulationConfig {
+  iterations: number;
+  seed: number;
+  params: {
+    S0: number;
+    K: number;
+    T: number;
+    r: number;
+    sigma: number;
+  };
+}
+
+export interface PerformanceMetrics {
+  cpuUsage: number;
+  memoryUsed: number; // MB
+  heapTotal: number; // MB
+  timestamp: number;
 }
 
 export interface PilotConfig {
   web3Enabled: boolean;
   deploymentTarget: 'vercel' | 'netlify' | 'custom';
   backend: 'node' | 'python' | 'go';
-}
-
-export interface AutomationStep {
-  action: string;
-  target?: string;
-  value?: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-}
-
-export interface ManualCredentials {
-  username?: string;
-  password?: string;
 }
 
 export interface ErrorReport {
