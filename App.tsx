@@ -4,7 +4,8 @@ import {
   Maximize2, Minimize2, Terminal as TerminalIcon, 
   MessageSquare, Zap, Globe, Database, Settings, X, GripVertical, Search,
   Bug, PlayCircle, BarChart3, Binary, Gauge, ActivitySquare,
-  Cpu, Move, Scan, Radio, Box, Terminal, Layers3, Activity, ShieldCheck
+  Cpu, Move, Scan, Radio, Box, Terminal, Layers3, Activity, ShieldCheck,
+  Target, Video, VideoOff, Crosshair, RefreshCw
 } from 'lucide-react';
 import { VNode, LogEntry, ChatMessage, AppState, SimulationConfig, PerformanceMetrics } from './types';
 import { analyzeContent, runCodingPilot, solveError, runSimulation, generateErrorReport } from './geminiService';
@@ -28,18 +29,23 @@ const App: React.FC = () => {
   const [userInput, setUserInput] = useState('');
   
   // --- Telemetry & Monitoring ---
-  const [metrics, setMetrics] = useState<PerformanceMetrics[]>([]);
   const [currentMetrics, setCurrentMetrics] = useState<PerformanceMetrics>({ cpuUsage: 0, memoryUsed: 0, heapTotal: 0, timestamp: Date.now() });
+  const lastTime = useRef(performance.now());
+  const frames = useRef(0);
 
   // --- Workspace & Navigation ---
   const [activeTab, setActiveTab] = useState<'vision' | 'browser' | 'systems' | 'report'>('vision');
   const [isVisionDetached, setIsVisionDetached] = useState(false);
   const [visionPosition, setVisionPosition] = useState({ x: 150, y: 150 });
-  const [visionSize, setVisionSize] = useState({ w: 520, h: 380 });
+  const [visionSize, setVisionSize] = useState({ w: 560, h: 420 });
   const [isScanning, setIsScanning] = useState(false);
   const [isDraggingVision, setIsDraggingVision] = useState(false);
   const [isWindowExpanded, setIsWindowExpanded] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
+
+  // --- Stream Management ---
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // --- Compartmentalized Engines ---
   const [activeStack, setActiveStack] = useState<'edge_stack' | 'python_pro' | 'next_gen' | 'ai_native'>('next_gen');
@@ -48,7 +54,6 @@ const App: React.FC = () => {
     params: { S0: 100, K: 105, T: 1, r: 0.05, sigma: 0.2 } 
   });
   const [simResult, setSimResult] = useState<any>(null);
-  const [cloudStatus, setCloudStatus] = useState<'connected' | 'syncing' | 'error' | 'idle'>('idle');
 
   const addLog = useCallback((message: string, level: LogEntry['level'] = 'info', metadata?: Record<string, any>) => {
     const newLog: LogEntry = {
@@ -61,90 +66,119 @@ const App: React.FC = () => {
     setLogs(prev => [newLog, ...prev].slice(0, 50));
   }, []);
 
-  // --- Real-World Performance Monitor ---
+  // --- Real-World Telemetry Monitor ---
   useEffect(() => {
     const monitorLoop = setInterval(() => {
+      // Memory Telemetry
       let memoryUsed = 0;
       let heapTotal = 0;
-      
-      // Attempt to access Chrome's performance memory API
       const perf = (performance as any).memory;
       if (perf) {
         memoryUsed = Math.round(perf.usedJSHeapSize / (1024 * 1024));
         heapTotal = Math.round(perf.jsHeapSizeLimit / (1024 * 1024));
       }
 
-      // Simulated CPU load based on AppState
-      const baseCpu = appState === AppState.IDLE ? 1 : 15;
-      const cpuUsage = Math.min(100, baseCpu + (Math.random() * 5));
+      // CPU Load Estimation (Task-Loop Latency Analysis)
+      const now = performance.now();
+      const delta = now - lastTime.current;
+      lastTime.current = now;
+      // In a perfect 60fps, delta is ~16.6ms. We use jitter to estimate load.
+      const jitter = Math.max(0, delta - (1000 / 60));
+      const estimatedCpu = Math.min(100, Math.round((jitter / 16.6) * 100) + (appState !== AppState.IDLE ? 15 : 2));
 
-      const newMetrics: PerformanceMetrics = {
-        cpuUsage,
+      setCurrentMetrics({
+        cpuUsage: estimatedCpu,
         memoryUsed,
         heapTotal,
         timestamp: Date.now()
-      };
-
-      setCurrentMetrics(newMetrics);
-      setMetrics(prev => [...prev.slice(-30), newMetrics]);
-    }, 2000);
+      });
+    }, 1000);
     return () => clearInterval(monitorLoop);
   }, [appState]);
 
-  // --- Autonomous Handlers ---
+  // --- External Spatial Intercept Logic ---
 
-  const handleScannerActivation = async () => {
-    addLog("VISION: TRIGGERING SCANNER ACTIVATION...", "info");
-    setIsScanning(true);
+  const initScannerStream = async () => {
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ 
-        video: { displaySurface: "browser", cursor: "never" } as any 
+      addLog("SYSTEM: REQUESTING SPATIAL INTERCEPT PERMISSIONS...", "info");
+      const mediaStream = await navigator.mediaDevices.getDisplayMedia({ 
+        video: { displaySurface: "monitor", cursor: "always" } as any 
       });
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      await video.play();
-
-      const canvas = document.createElement('canvas');
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = visionSize.w * dpr;
-      canvas.height = (visionSize.h - 32) * dpr;
-      const ctx = canvas.getContext('2d');
+      setStream(mediaStream);
+      setIsVisionDetached(true);
+      addLog("SYSTEM: EXTERNAL SIGNAL SYNCHRONIZED.", "success");
       
-      // Precise Spatial Intercept
-      ctx?.drawImage(video, visionPosition.x * dpr, (visionPosition.y + 32) * dpr, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
-      const screenshot = canvas.toDataURL('image/jpeg', 0.9);
-      stream.getTracks().forEach(t => t.stop());
-
-      addLog("SCANNER: BUFFER_ID CAPTURED. ANALYZING...", "success");
-      const result = await analyzeContent(screenshot);
-      addLog("SCANNER: AUDIT COMPLETE.", "success");
-      setChatHistory(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: `[AUDIT_REPORT]\n\n${result}` }]);
+      mediaStream.getVideoTracks()[0].onended = () => {
+        setStream(null);
+        addLog("SYSTEM: EXTERNAL SIGNAL LOST.", "warn");
+      };
     } catch (err: any) {
-      addLog("SCANNER: CAPTURE HALTED BY KERNEL.", "error", { error: err.message });
+      addLog("SYSTEM: PERMISSION DENIED BY KERNEL.", "error", { error: err.message });
+    }
+  };
+
+  const handleCaptureAndAnalyze = async () => {
+    if (!videoRef.current || !stream) {
+      addLog("SCANNER: SOURCE STREAM MISSING.", "error");
+      return;
+    }
+
+    setAppState(AppState.ANALYZING);
+    setIsScanning(true);
+    addLog("SCANNER: FREEZING SPATIAL BUFFER...", "info");
+
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error("Canvas Context Failure");
+
+      // Draw current frame
+      ctx.drawImage(video, 0, 0);
+      
+      // Post-processing for high-fidelity vision
+      ctx.globalCompositeOperation = 'difference';
+      ctx.fillStyle = 'rgba(0,0,0,0.05)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      const screenshot = canvas.toDataURL('image/jpeg', 0.95);
+      addLog("SCANNER: UPLOADING TO NEURAL BRIDGE...", "info");
+      
+      const result = await analyzeContent(screenshot);
+      addLog("SCANNER: ANALYSIS COMPLETE.", "success");
+      
+      setChatHistory(prev => [...prev, { 
+        id: Date.now().toString(), 
+        role: 'assistant', 
+        content: `[SPATIAL INTERCEPT AUDIT]\n\n${result}` 
+      }]);
+    } catch (err: any) {
+      addLog("SCANNER: BUFFER PROCESSING ERROR.", "error", { error: err.message });
     } finally {
       setIsScanning(false);
+      setAppState(AppState.IDLE);
     }
   };
 
   const handleMonteCarlo = async () => {
     setAppState(AppState.SIMULATING);
-    addLog(`SIM: RUNNING STOCHASTIC PROCESS (N=${simConfig.iterations})`, "info", { config: simConfig });
+    addLog(`SIM: RUNNING PRODUCTION-GRADE MC (N=${simConfig.iterations})`, "info");
     try {
-      // Logic from provided Python code refined for browser
       const { S0, K, T, r, sigma } = simConfig.params;
-      const dt = T; 
       const disc = Math.exp(-r * T);
-      
       let sumPayoffs = 0;
+      
       for (let i = 0; i < simConfig.iterations; i++) {
         const z = boxMuller();
-        const ST = S0 * Math.exp((r - 0.5 * sigma ** 2) * dt + sigma * Math.sqrt(dt) * z);
+        const ST = S0 * Math.exp((r - 0.5 * sigma ** 2) * T + sigma * Math.sqrt(T) * z);
         sumPayoffs += Math.max(ST - K, 0);
       }
       
       const price = disc * (sumPayoffs / simConfig.iterations);
-      setSimResult({ results: { option_price: price }, summary: `MC Price ≈ ${price.toFixed(5)}` });
-      addLog("SIM: CONVERGENCE ACHIEVED.", "success", { price });
+      setSimResult({ results: { option_price: price }, summary: `MC Price ≈ ${price.toFixed(6)}` });
+      addLog("SIM: STOCHASTIC CONVERGENCE ACHIEVED.", "success", { price });
     } catch (err: any) {
       addLog("SIM: ENGINE STALL.", "error", { error: err.message });
     } finally {
@@ -154,7 +188,7 @@ const App: React.FC = () => {
 
   const handleMasterBuild = async (instruction: string) => {
     setAppState(AppState.ORCHESTRATING);
-    addLog(`BUILDER: ORCHESTRATING "${activeStack.toUpperCase()}" PIPELINE...`, "info");
+    addLog(`BUILDER: DEPLOYING "${activeStack.toUpperCase()}" CLUSTER...`, "info");
     try {
       const resText = await runCodingPilot(instruction, JSON.stringify(vfs), activeStack);
       const parsed = JSON.parse(resText);
@@ -163,18 +197,15 @@ const App: React.FC = () => {
           const nv = [...prev];
           parsed.files.forEach((f: any) => {
             const existing = nv[0].children?.find(node => node.path === f.path);
-            if (existing) {
-              existing.content = f.content;
-            } else {
-              nv[0].children?.push({ name: f.path.split('/').pop() || f.path, path: f.path, type: 'file', content: f.content });
-            }
+            if (existing) existing.content = f.content;
+            else nv[0].children?.push({ name: f.path.split('/').pop() || f.path, path: f.path, type: 'file', content: f.content });
           });
           return nv;
         });
         parsed.telemetry_logs?.forEach((l: string) => addLog(`KERN: ${l}`, "success"));
       }
     } catch (err: any) {
-      addLog("BUILDER: PIPELINE CRASHED.", "error", { error: err.message });
+      addLog("BUILDER: ORCHESTRATION FAILED.", "error", { error: err.message });
     } finally {
       setAppState(AppState.IDLE);
     }
@@ -188,7 +219,7 @@ const App: React.FC = () => {
     const cmd = command.toLowerCase();
     if (cmd.startsWith('build ')) handleMasterBuild(command.replace('build ', ''));
     else if (cmd.includes('simulate')) handleMonteCarlo();
-    else if (cmd.includes('scan')) setIsVisionDetached(true);
+    else if (cmd.includes('scan')) initScannerStream();
     else {
       setAppState(AppState.ANALYZING);
       const r = await solveError(command, "ROOT_CONTEXT");
@@ -207,62 +238,106 @@ const App: React.FC = () => {
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, [isDraggingVision]);
 
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
   return (
     <div className="h-screen w-screen bg-black flex flex-col p-4 gap-4 overflow-hidden relative font-mono text-green-500 select-none">
       
-      {/* --- PRODUCTION SCANNER WINDOW --- */}
+      {/* --- PRODUCTION SCANNER WINDOW (SPATIAL HUD) --- */}
       {isVisionDetached && (
         <div 
-          className="fixed z-[999] border-2 border-green-500 flex flex-col pointer-events-auto overflow-hidden transition-shadow"
+          className="fixed z-[999] border-2 border-green-500 flex flex-col pointer-events-auto overflow-hidden transition-all duration-300"
           style={{ 
             left: visionPosition.x, top: visionPosition.y, 
             width: visionSize.w, height: visionSize.h,
-            background: 'rgba(0, 15, 0, 0.95)',
-            boxShadow: isScanning ? '0 0 120px rgba(0, 255, 65, 0.4)' : '0 0 40px rgba(0, 255, 65, 0.1)'
+            background: 'rgba(0, 10, 0, 0.98)',
+            boxShadow: isScanning ? '0 0 150px rgba(0, 255, 65, 0.6)' : '0 0 50px rgba(0, 255, 65, 0.1)'
           }}
         >
           <div 
-            className="h-8 bg-green-500/20 border-b border-green-500 flex items-center justify-between px-3 cursor-move backdrop-blur-lg"
+            className="h-9 bg-green-500/20 border-b border-green-500 flex items-center justify-between px-3 cursor-move backdrop-blur-xl"
             onMouseDown={(e) => { setIsDraggingVision(true); dragOffset.current = { x: e.clientX - visionPosition.x, y: e.clientY - visionPosition.y }; }}
           >
-            <div className="flex items-center gap-2">
-              <Scan size={14} className={isScanning ? "animate-spin" : "animate-pulse"} />
-              <span className="text-[10px] font-black uppercase tracking-widest">DE_FRAME_AUDITOR_v2.5</span>
+            <div className="flex items-center gap-3">
+              <Crosshair size={14} className={isScanning ? "animate-spin text-white" : "animate-pulse"} />
+              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white">DE_FRAME_INTERCEPT_v3.0</span>
             </div>
-            <button onClick={() => setIsVisionDetached(false)} className="hover:text-red-500 transition-colors"><X size={16} /></button>
+            <div className="flex items-center gap-4">
+              <button onClick={() => stream?.getTracks().forEach(t => t.stop())} className="text-red-500/50 hover:text-red-500"><VideoOff size={14}/></button>
+              <button onClick={() => setIsVisionDetached(false)} className="hover:text-white transition-colors"><X size={18} /></button>
+            </div>
           </div>
-          <div className="flex-1 relative flex items-center justify-center bg-black/60 overflow-hidden">
-            {isScanning ? (
-              <div className="flex flex-col items-center gap-6">
-                <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
-                <div className="space-y-1 text-center">
-                  <span className="text-[11px] font-black animate-pulse text-white">DECODING_VISUAL_VECTOR</span>
-                  <div className="w-48 h-1 bg-green-900 rounded-full overflow-hidden">
-                    <div className="h-full bg-green-500 w-1/2 animate-[progress_1s_infinite_linear]"></div>
-                  </div>
-                </div>
-              </div>
+          
+          <div className="flex-1 relative bg-black overflow-hidden flex items-center justify-center">
+            {stream ? (
+              <video 
+                ref={videoRef} 
+                autoPlay 
+                playsInline 
+                muted 
+                className="w-full h-full object-cover grayscale brightness-125 contrast-150 opacity-40 hover:opacity-100 transition-opacity duration-500"
+              />
             ) : (
-              <div className="text-center space-y-6 group">
-                <div className="p-8 border border-green-500/20 rounded-full bg-green-500/5 group-hover:border-green-500 group-hover:bg-green-500/10 transition-all">
-                  <Radio size={52} className="text-green-500/40 group-hover:text-green-500 transition-colors" />
-                </div>
-                <button 
-                  onClick={handleScannerActivation}
-                  className="px-10 py-3 bg-green-500 text-black font-black text-[12px] hover:bg-white hover:shadow-[0_0_25px_white] active:scale-95 transition-all"
-                >ACTIVATE_SYNC</button>
-                <div className="text-[8px] opacity-30 font-bold space-y-1">
-                  <p>MAPPING: {visionPosition.x}x{visionPosition.y}</p>
-                  <p>STATUS: READY_FOR_SIGNAL</p>
+              <div className="flex flex-col items-center gap-6 opacity-20">
+                <Target size={60} />
+                <span className="text-[10px] font-black tracking-widest uppercase">Signal Lost - Re-initialize</span>
+              </div>
+            )}
+            
+            {/* HUD Overlay Elements */}
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute top-0 w-full h-[1px] bg-green-500/40 animate-[scanline_4s_linear_infinite]"></div>
+              <div className="absolute inset-0 grid grid-cols-4 grid-rows-4 opacity-5">
+                {Array.from({length: 16}).map((_, i) => <div key={i} className="border border-green-500/30"></div>)}
+              </div>
+              <div className="absolute top-6 left-6 w-12 h-12 border-t-2 border-l-2 border-green-500 shadow-[0_0_10px_green]"></div>
+              <div className="absolute bottom-6 right-6 w-12 h-12 border-b-2 border-r-2 border-green-500 shadow-[0_0_10px_green]"></div>
+              
+              <div className="absolute top-6 right-6 text-[8px] font-black text-right space-y-1 bg-black/40 p-2 border border-green-500/10">
+                <p>COORD_X: {visionPosition.x}</p>
+                <p>COORD_Y: {visionPosition.y}</p>
+                <p>STATUS: {isScanning ? 'CAPTURING...' : 'INTERCEPTING'}</p>
+              </div>
+            </div>
+
+            {/* Scanning Logic Button */}
+            {!isScanning && stream && (
+              <button 
+                onClick={handleCaptureAndAnalyze}
+                className="absolute z-10 px-8 py-3 bg-green-500 text-black font-black text-[12px] uppercase shadow-[0_0_30px_rgba(0,255,65,0.5)] hover:scale-105 active:scale-95 transition-all"
+              >
+                SYNC_VIEWPORT_AUDIT
+              </button>
+            )}
+
+            {isScanning && (
+              <div className="absolute inset-0 bg-white/10 flex items-center justify-center z-20 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-4">
+                  <RefreshCw size={40} className="animate-spin text-white" />
+                  <span className="text-[14px] font-black text-white tracking-[0.5em] animate-pulse">EXTRACTING_DATA</span>
                 </div>
               </div>
             )}
-            <div className="absolute inset-4 pointer-events-none opacity-20">
-              <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-green-500"></div>
-              <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-green-500"></div>
-            </div>
-            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none"></div>
           </div>
+          
+          <div className="h-6 bg-green-500/10 border-t border-green-500/20 px-3 flex items-center justify-between text-[8px] font-bold">
+            <span className="opacity-50">PRODUCTION_ENVIRONMENT_STABLE</span>
+            <span className="animate-pulse text-green-400">0x{Math.random().toString(16).slice(2, 8).toUpperCase()}</span>
+          </div>
+          
+          {/* Resize Handle */}
+          <div className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize bg-green-500/20" onMouseDown={(e) => {
+            e.stopPropagation();
+            const startW = visionSize.w; const startH = visionSize.h;
+            const startX = e.clientX; const startY = e.clientY;
+            const move = (m: MouseEvent) => setVisionSize({ w: Math.max(300, startW + (m.clientX - startX)), h: Math.max(250, startH + (m.clientY - startY)) });
+            const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+            window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+          }}></div>
         </div>
       )}
 
@@ -276,7 +351,7 @@ const App: React.FC = () => {
             <h1 className="font-black text-3xl tracking-[0.5em] uppercase text-white">DeFrame_OS</h1>
             <div className="flex gap-8 mt-1">
               <div className="flex items-center gap-2 text-[11px] uppercase font-black text-green-700">
-                <Gauge size={14} /> CPU_LOAD: <span className={currentMetrics.cpuUsage > 80 ? 'text-red-500' : 'text-green-500'}>{currentMetrics.cpuUsage.toFixed(1)}%</span>
+                <Gauge size={14} /> KERNEL_LOAD: <span className={currentMetrics.cpuUsage > 80 ? 'text-red-500' : 'text-green-500'}>{currentMetrics.cpuUsage}%</span>
               </div>
               <div className="flex items-center gap-2 text-[11px] uppercase font-black text-green-700">
                 <Database size={14} /> MEM_ALLOC: {currentMetrics.memoryUsed}MB / {currentMetrics.heapTotal}MB
@@ -286,13 +361,13 @@ const App: React.FC = () => {
         </div>
         <div className="flex gap-6">
           <div className="flex flex-col items-end justify-center px-4 border-r border-green-500/20">
-            <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest">Core_State</span>
+            <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest text-right">Core_State</span>
             <span className="text-[12px] font-black text-white">{appState}</span>
           </div>
           <button 
-            onClick={() => setIsVisionDetached(true)} 
+            onClick={initScannerStream} 
             className="px-8 py-2 bg-green-500/10 border-2 border-green-500 text-green-500 font-black text-[11px] hover:bg-green-500 hover:text-black shadow-[0_0_10px_rgba(0,255,65,0.2)]"
-          >BOOT_SCANNER</button>
+          >DEPLOY_SPATIAL_HUD</button>
         </div>
       </header>
 
@@ -343,7 +418,7 @@ const App: React.FC = () => {
                           placeholder="Input architectural instructions..."
                         ></textarea>
                         <button 
-                          onClick={() => handleMasterBuild("System Blueprint Init")} 
+                          onClick={() => handleMasterBuild("Production Architecture Sequence")} 
                           className="w-full py-4 bg-green-900/20 border-2 border-green-500 text-green-500 font-black text-[12px] hover:bg-green-500 hover:text-black transition-all shadow-[0_0_20px_rgba(0,255,65,0.1)]"
                         >EXECUTE_ORCHESTRATION</button>
                       </div>
@@ -395,9 +470,9 @@ const App: React.FC = () => {
                     <h2 className="text-2xl font-black uppercase tracking-[0.4em] text-green-900">Awaiting Signal Synchronization</h2>
                     <p className="text-[11px] opacity-30 leading-loose uppercase font-bold italic">Kernel is ready for visual intercept. Deploy and mount the scanner to begin structural analysis.</p>
                     <button 
-                      onClick={() => setIsVisionDetached(true)} 
+                      onClick={initScannerStream} 
                       className="px-14 py-4 border-2 border-green-500 text-green-500 font-black text-[13px] hover:bg-green-500 hover:text-black transition-all"
-                    >Deploy Auditor Scanner</button>
+                    >Initialize Spatial HUD</button>
                   </div>
                 </div>
               )}
@@ -490,7 +565,7 @@ const App: React.FC = () => {
       </div>
 
       <style>{`
-        @keyframes progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+        @keyframes scanline { 0% { bottom: 100%; } 100% { bottom: 0%; } }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: black; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #002200; }
