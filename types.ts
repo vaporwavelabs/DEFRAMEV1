@@ -1,4 +1,6 @@
 
+export type ConnectionStatus = 'connecting' | 'connected' | 'error';
+
 export interface VNode {
   name: string;
   path: string;

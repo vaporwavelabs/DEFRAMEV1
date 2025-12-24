@@ -1,15 +1,14 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   Maximize2, Minimize2, Terminal as TerminalIcon, 
   MessageSquare, Zap, Globe, Database, Settings, X, GripVertical, Search,
   Bug, PlayCircle, BarChart3, Binary, Gauge, ActivitySquare,
   Cpu, Move, Scan, Radio, Box, Terminal, Layers3, Activity, ShieldCheck,
-  Target, Video, VideoOff, Crosshair, RefreshCw, HardDriveDownload, Cloud
+  Target, Video, VideoOff, Crosshair, RefreshCw, HardDriveDownload
 } from 'lucide-react';
-import { VNode, LogEntry, ChatMessage, AppState, SimulationConfig, PerformanceMetrics, ConnectionStatus } from './types';
+import { VNode, LogEntry, ChatMessage, AppState, SimulationConfig, PerformanceMetrics } from './types';
 import { analyzeContent, runCodingPilot, solveError, runSimulation, generateErrorReport } from './geminiService';
-import { persistAppState, persistLog, persistChat, fetchLatestSession, fetchAllLogs, fetchAllChat, checkInitialConnection } from './supabase';
+import { persistAppState, persistLog, persistChat, fetchLatestSession, fetchAllLogs, fetchAllChat } from './supabase';
 
 // Production Logic: Box-Muller for high-accuracy Gauss Distribution
 const boxMuller = () => {
@@ -22,7 +21,6 @@ const boxMuller = () => {
 const App: React.FC = () => {
   // --- Core Engine State ---
   const [isRestoring, setIsRestoring] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [vfs, setVfs] = useState<VNode[]>([{ name: 'root', path: '/', type: 'folder', children: [] }]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -70,20 +68,7 @@ const App: React.FC = () => {
   // --- Session Restoration on Initial Load ---
   useEffect(() => {
     const restoreSession = async () => {
-      addLog("KERNEL: Pinging Supabase persistence layer...", "info");
-      setConnectionStatus('connecting');
-      const isConnected = await checkInitialConnection();
-
-      if (!isConnected) {
-        setConnectionStatus('error');
-        addLog("KERNEL: Cloud sync failed. Check connection or Supabase setup.", "error");
-        setIsRestoring(false);
-        return;
-      }
-      
-      setConnectionStatus('connected');
-      addLog("KERNEL: Cloud connection established.", "success");
-
+      addLog("KERNEL: Initializing cloud synchronization...", "info");
       const [sessionData, logData, chatData] = await Promise.all([
         fetchLatestSession(),
         fetchAllLogs(),
@@ -173,6 +158,7 @@ const App: React.FC = () => {
       addLog("SCANNER: Uploading to Neural Bridge...", "info");
       const result = await analyzeContent(screenshot);
       addLog("SCANNER: Analysis complete.", "success");
+      // FIX: Explicitly type `newMsg` as `ChatMessage` to ensure the `role` property is correctly typed as 'assistant' instead of the wider `string` type.
       const newMsg: ChatMessage = { id: Date.now().toString(), role: 'assistant', content: `[SPATIAL INTERCEPT AUDIT]\n\n${result}` };
       setChatHistory(prev => [...prev, newMsg]);
       persistChat(newMsg);
@@ -235,6 +221,7 @@ const App: React.FC = () => {
 
   const executeCommand = async (command: string) => {
     if (!command.trim()) return;
+    // FIX: Explicitly type `userMsg` as `ChatMessage` to ensure the `role` property is correctly typed as 'user'.
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: `> ${command}` };
     setChatHistory(prev => [...prev, userMsg]);
     persistChat(userMsg);
@@ -247,6 +234,7 @@ const App: React.FC = () => {
     else {
       setAppState(AppState.ANALYZING);
       const r = await solveError(command, "ROOT_CONTEXT");
+      // FIX: Explicitly type `assistantMsg` as `ChatMessage` to resolve the type error where `role` was being inferred as `string`.
       const assistantMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: r.text };
       setChatHistory(prev => [...prev, assistantMsg]);
       persistChat(assistantMsg);
@@ -386,18 +374,6 @@ const App: React.FC = () => {
               </div>
               <div className="flex items-center gap-2 text-[11px] uppercase font-black text-green-700">
                 <Database size={14} /> MEM_ALLOC: {currentMetrics.memoryUsed}MB / {currentMetrics.heapTotal}MB
-              </div>
-              <div className="flex items-center gap-2 text-[11px] uppercase font-black text-green-700">
-                <Cloud size={14} className={
-                    connectionStatus === 'connected' ? 'text-green-500' :
-                    connectionStatus === 'error' ? 'text-red-500' :
-                    'text-yellow-500 animate-pulse'
-                } />
-                CLOUD_SYNC: <span className={
-                    connectionStatus === 'connected' ? 'text-green-500' :
-                    connectionStatus === 'error' ? 'text-red-500' :
-                    'text-yellow-500'
-                }>{connectionStatus.toUpperCase()}</span>
               </div>
             </div>
           </div>
