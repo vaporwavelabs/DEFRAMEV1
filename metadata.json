@@ -1,0 +1,8 @@
+{
+  "name": "Copy of Copy of DeFrame AI",
+  "description": "An autonomous AI coding and analysis environment with a retro terminal aesthetic.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
