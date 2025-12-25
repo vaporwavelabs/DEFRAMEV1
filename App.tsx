@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   Maximize2, Minimize2, Terminal as TerminalIcon, 
